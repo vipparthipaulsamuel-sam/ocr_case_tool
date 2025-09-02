@@ -21,42 +21,58 @@ load_dotenv()
 
 # --- Config helpers ---
 BASE_DIR = Path(__file__).resolve().parent
-INSTANCE_DIR = BASE_DIR / "instance"
-UPLOAD_DIR = INSTANCE_DIR / "uploads"
+# Allow the launcher (e.g., Windows EXE) to override where we write the DB/uploads
+INSTANCE_DIR = Path(os.getenv("APP_INSTANCE_DIR", BASE_DIR / "instance"))
+UPLOAD_DIR = Path(os.getenv("UPLOAD_FOLDER", INSTANCE_DIR / "uploads"))
 ALLOWED_EXTS = {".jpg", ".jpeg", ".png"}  # extend if needed
 
+
 def normalize_sqlite_uri(uri: str) -> str:
-    """If uri is a SQLite URL with a relative filesystem path (e.g. sqlite:///instance/ocr_case_tool.sqlite),
-    convert it to absolute based on BASE_DIR. Otherwise return as-is."""
+    """
+    Normalize SQLite URL so it works on Windows and POSIX.
+    - Keep 'sqlite:///C:/...' form on Windows (3 slashes).
+    - For absolute POSIX paths, 'sqlite://///abs/path' is fine.
+    - For relative paths, resolve against BASE_DIR and use 'sqlite:///'.
+    """
     if not uri.startswith("sqlite:///"):
         return uri
+
+    # Strip prefix and inspect the path
     path_part = uri[len("sqlite:///"):]
     p = Path(path_part)
+
+    # Windows drive-letter path? keep 3 slashes form
+    if os.name == "nt":
+        # e.g. 'C:/Users/...'
+        if ":" in path_part[:3]:
+            return f"sqlite:///{p.as_posix()}"
+
+    # POSIX absolute path
     if p.is_absolute():
         return f"sqlite:////{p.as_posix()}"
+
+    # Relative path → resolve against BASE_DIR
     abs_path = (BASE_DIR / p).resolve()
-    return f"sqlite:////{abs_path.as_posix()}"
+    return f"sqlite:///{abs_path.as_posix()}"
+
 
 def create_app():
     app = Flask(__name__, instance_relative_config=True)
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-change-me')
 
-    # Default DB is absolute under instance/
-    default_db_uri = f"sqlite:////{(INSTANCE_DIR / 'ocr_case_tool.sqlite').as_posix()}"
+    # Default DB under INSTANCE_DIR (which may be overridden via APP_INSTANCE_DIR)
+    default_db_uri = f"sqlite:///{(INSTANCE_DIR / 'ocr_case_tool.sqlite').as_posix()}"
     db_uri = os.getenv('DATABASE_URL', default_db_uri)
     db_uri = normalize_sqlite_uri(db_uri)
     app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-    upload_folder = os.getenv('UPLOAD_FOLDER', str(UPLOAD_DIR))
-    uf_path = Path(upload_folder)
-    if not uf_path.is_absolute():
-        uf_path = (BASE_DIR / uf_path).resolve()
-    app.config['UPLOAD_FOLDER'] = str(uf_path)
+    # Upload folder from env or default under INSTANCE_DIR
+    app.config['UPLOAD_FOLDER'] = UPLOAD_DIR.as_posix()
 
-    # Ensure folders exist
-    INSTANCE_DIR.mkdir(exist_ok=True)
-    Path(app.config['UPLOAD_FOLDER']).mkdir(parents=True, exist_ok=True)
+    # Ensure folders exist (now honoring overrides)
+    INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
     # Optional tesseract path
     tcmd = os.getenv('TESSERACT_CMD')
@@ -64,6 +80,7 @@ def create_app():
         pytesseract.pytesseract.tesseract_cmd = tcmd
 
     return app
+
 
 app = create_app()
 db = SQLAlchemy(app)
@@ -73,6 +90,7 @@ Payment = payments_table(db)
 
 # Register Payments OCR blueprint
 app.register_blueprint(payments_bp, url_prefix="/payments")
+
 
 # --- Models ---
 class User(db.Model):
@@ -87,6 +105,7 @@ class User(db.Model):
     uploads = db.relationship("Upload", backref="uploader", lazy=True)
     notes = db.relationship("Note", backref="author", lazy=True)
 
+
 class Case(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -96,6 +115,7 @@ class Case(db.Model):
 
     uploads = db.relationship("Upload", backref="case", lazy=True, cascade="all, delete-orphan")
     notes = db.relationship("Note", backref="case", lazy=True, cascade="all, delete-orphan")
+
 
 class Upload(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -109,6 +129,7 @@ class Upload(db.Model):
 
     ocr_text = db.relationship("OcrText", backref="upload", uselist=False, cascade="all, delete-orphan")
 
+
 class OcrText(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     upload_id = db.Column(db.Integer, db.ForeignKey('upload.id'), nullable=False, unique=True)
@@ -118,12 +139,14 @@ class OcrText(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
 class Note(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 
 class ActivityLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -134,6 +157,7 @@ class ActivityLog(db.Model):
     meta_json = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+
 # --- Helpers ---
 def current_user():
     uid = session.get('user_id')
@@ -141,29 +165,37 @@ def current_user():
         return None
     return User.query.get(uid)
 
+
 def login_required(fn):
     from functools import wraps
+
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if not current_user():
             flash("Please login first.", "warning")
             return redirect(url_for('login', next=request.path))
         return fn(*args, **kwargs)
+
     return wrapper
+
 
 def admin_required(fn):
     from functools import wraps
+
     @wraps(fn)
     def wrapper(*args, **kwargs):
         u = current_user()
         if not u or u.role != "admin":
             abort(403)
         return fn(*args, **kwargs)
+
     return wrapper
+
 
 def allowed_file(filename: str) -> bool:
     ext = Path(filename).suffix.lower()
     return ext in ALLOWED_EXTS
+
 
 def log_action(user_id, action, entity_type=None, entity_id=None, meta=None):
     entry = ActivityLog(
@@ -176,6 +208,7 @@ def log_action(user_id, action, entity_type=None, entity_id=None, meta=None):
     db.session.add(entry)
     db.session.commit()
 
+
 def run_ocr(image_path, lang="eng"):
     try:
         img = Image.open(image_path)
@@ -184,12 +217,14 @@ def run_ocr(image_path, lang="eng"):
     except Exception as e:
         return f"[OCR ERROR] {e}"
 
+
 # --- Routes ---
 @app.route("/")
 def index():
     if current_user():
         return redirect(url_for("dashboard"))
     return render_template("index.html")
+
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -220,6 +255,7 @@ def register():
         return redirect(url_for("login"))
     return render_template("register.html")
 
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -236,6 +272,7 @@ def login():
         return redirect(url_for("dashboard"))
     return render_template("login.html")
 
+
 @app.route("/logout")
 def logout():
     u = current_user()
@@ -244,6 +281,7 @@ def logout():
         log_action(u.id, "logout")
     flash("You have been logged out.", "info")
     return redirect(url_for("index"))
+
 
 @app.route("/dashboard")
 @login_required
@@ -254,6 +292,7 @@ def dashboard():
     else:
         cases = Case.query.filter_by(user_id=u.id).order_by(Case.created_at.desc()).all()
     return render_template("dashboard.html", cases=cases, user=u)
+
 
 @app.route("/case/create", methods=["POST"])
 @login_required
@@ -271,12 +310,14 @@ def create_case():
     flash("Case created.", "success")
     return redirect(url_for("case_detail", case_id=c.id))
 
+
 def can_access_case(u, c: Case):
     if not u:
         return False
     if u.role == "admin":
         return True
     return c.user_id == u.id
+
 
 @app.route("/case/<int:case_id>")
 @login_required
@@ -289,6 +330,7 @@ def case_detail(case_id):
     notes = Note.query.filter_by(case_id=case_id).order_by(Note.created_at.desc()).all()
     payments = Payment.query.filter_by(case_id=case_id).order_by(Payment.created_at.desc()).all()
     return render_template("case_detail.html", case=c, uploads=uploads, notes=notes, payments=payments, user=u)
+
 
 @app.route("/case/<int:case_id>/note", methods=["POST"])
 @login_required
@@ -307,6 +349,7 @@ def add_note(case_id):
     log_action(u.id, "note_add", "case", case_id, meta=f"note_id={n.id}")
     flash("Note added.", "success")
     return redirect(url_for("case_detail", case_id=case_id))
+
 
 @app.route("/case/<int:case_id>/upload", methods=["POST"])
 @login_required
@@ -358,6 +401,7 @@ def upload_file(case_id):
     flash("File uploaded and OCR completed.", "success")
     return redirect(url_for("case_detail", case_id=case_id))
 
+
 @app.route("/upload/<int:upload_id>/image")
 @login_required
 def serve_upload(upload_id):
@@ -367,6 +411,7 @@ def serve_upload(upload_id):
     if not can_access_case(u, c):
         abort(403)
     return send_from_directory(app.config['UPLOAD_FOLDER'], up.stored_filename)
+
 
 @app.route("/upload/<int:upload_id>/rerun-ocr", methods=["POST"])
 @login_required
@@ -387,6 +432,7 @@ def rerun_ocr(upload_id):
     flash("OCR re-run completed.", "success")
     return redirect(url_for("case_detail", case_id=up.case_id))
 
+
 # --- Admin Views ---
 @app.route("/admin")
 @login_required
@@ -396,6 +442,7 @@ def admin_dashboard():
     cases = Case.query.order_by(Case.created_at.desc()).all()
     uploads = Upload.query.order_by(Upload.uploaded_at.desc()).all()
     return render_template("admin.html", users=users, cases=cases, uploads=uploads)
+
 
 @app.route("/case/<int:case_id>/delete", methods=["POST"])
 @login_required
@@ -427,13 +474,15 @@ def delete_case(case_id):
     flash("Case and all related data deleted.", "success")
     return redirect(url_for("admin_dashboard"))
 
+
 # --- CLI helpers (with app context) ---
 def cli_init_db():
     with app.app_context():
-        INSTANCE_DIR.mkdir(exist_ok=True)
-        Path(app.config['UPLOAD_FOLDER']).mkdir(parents=True, exist_ok=True)
+        INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         db.create_all()
         print("Database initialized at:", app.config['SQLALCHEMY_DATABASE_URI'])
+
 
 def cli_create_admin(email, name, password):
     with app.app_context():
@@ -442,11 +491,16 @@ def cli_create_admin(email, name, password):
         if existing:
             print("User already exists:", email)
             return
-        u = User(email=email.lower(), name=name, role="admin",
-                 password_hash=generate_password_hash(password, method="pbkdf2:sha256"))
+        u = User(
+            email=email.lower(),
+            name=name,
+            role="admin",
+            password_hash=generate_password_hash(password, method="pbkdf2:sha256")
+        )
         db.session.add(u)
         db.session.commit()
         print("Admin created:", email)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="OCR Case Tool")
