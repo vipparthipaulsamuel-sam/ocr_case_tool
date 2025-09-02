@@ -50,20 +50,29 @@ def _set_runtime_env():
         db_path.touch()
 
 
-def _maybe_point_to_bundled_tesseract():
+def _maybe_point_to_tesseract():
     """
-    If the EXE contains a local tesseract folder, point pytesseract to it.
-    Works with PyInstaller's _MEIPASS extraction dir.
+    Try to point pytesseract to a usable binary:
+    1. Bundled copy (inside PyInstaller _MEIPASS)
+    2. System-wide install (Program Files / Program Files (x86))
     """
     try:
-        import pytesseract  # import inside function intentionally
+        import pytesseract
         base = getattr(sys, "_MEIPASS", os.path.abspath("."))
-        candidate = os.path.join(base, "tesseract", "tesseract.exe")
-        if os.path.exists(candidate):
-            pytesseract.pytesseract.tesseract_cmd = candidate
-    except Exception:
-        # Non-fatal if not present
-        pass
+        bundled = os.path.join(base, "tesseract", "tesseract.exe")
+        candidates = [
+            bundled,
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                pytesseract.pytesseract.tesseract_cmd = c
+                print(f"[INFO] Using Tesseract at {c}")
+                return
+        print("[WARN] Tesseract not found. OCR will not work until installed.")
+    except Exception as e:
+        print(f"[WARN] Could not configure Tesseract: {e}")
 
 
 def _open_browser():
@@ -91,7 +100,7 @@ def _ensure_db():
 
 
 if __name__ == "__main__":
-    _maybe_point_to_bundled_tesseract()
+    _maybe_point_to_tesseract()
     _ensure_db()
     threading.Timer(1.0, _open_browser).start()
     # Bind only to localhost by default
