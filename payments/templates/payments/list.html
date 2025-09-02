@@ -1,0 +1,49 @@
+
+{% extends 'base.html' %}
+{% block content %}
+<div class="container">
+  <h2 class="mt-3 mb-3">Payments (OCR)</h2>
+  <a class="btn btn-primary mb-3" href="{{ url_for('payments.upload') }}">Upload screenshots</a>
+  <a class="btn btn-outline-secondary mb-3" href="{{ url_for('payments.export_csv') }}">Export CSV</a>
+  <a class="btn btn-outline-secondary mb-3" href="{{ url_for('payments.export_pdf') }}">Export PDF</a>
+
+  <div class="table-responsive">
+    <table class="table table-sm table-striped">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Channel</th>
+          <th>Payer</th>
+          <th>Payee</th>
+          <th>VPA</th>
+          <th>Bank</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>UTR</th>
+          <th>UPI Txn ID</th>
+          <th>Time</th>
+          <th>File</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ r.channel or '' }}</td>
+          <td>{{ r.payer_name or '' }}</td>
+          <td>{{ r.payee_name or '' }}</td>
+          <td>{{ r.payee_vpa or '' }}</td>
+          <td>{{ r.bank_name or '' }}</td>
+          <td>{{ '₹' ~ ('%.2f'|format(r.amount_inr)) if r.amount_inr is not none else '' }}</td>
+          <td>{{ r.txn_status or '' }}</td>
+          <td>{{ r.utr or '' }}</td>
+          <td>{{ r.upi_txn_id or '' }}</td>
+          <td>{{ r.txn_time.strftime('%d %b %Y, %I:%M %p') if r.txn_time else '' }}</td>
+          <td>{{ r.source_filename or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

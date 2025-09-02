@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Edit Payment</h2>
+<form method="post">
+  <div>
+    <label>Bank Name:
+      <input type="text" name="bank_name" value="{{ p.bank_name or '' }}">
+    </label>
+  </div>
+  <div>
+    <label>UTR:
+      <input type="text" name="utr" value="{{ p.utr or '' }}">
+    </label>
+  </div>
+  <div>
+    <label>UPI Ref No:
+      <input type="text" name="upi_txn_id" value="{{ p.upi_txn_id or '' }}">
+    </label>
+  </div>
+  <div>
+    <label>Amount:
+      <input type="text" name="amount_inr" value="{{ p.amount_inr or '' }}">
+    </label>
+  </div>
+  <div>
+    <label>Payer:
+      <input type="text" name="payer_name" value="{{ p.payer_name or '' }}">
+    </label>
+  </div>
+  <div>
+    <label>UPI ID To:
+      <input type="text" name="payee_vpa" value="{{ p.payee_vpa or '' }}">
+    </label>
+  </div>
+  <div>
+    <label>Payee Name:
+      <input type="text" name="payee_name" value="{{ p.payee_name or '' }}">
+    </label>
+  </div>
+  <button type="submit">Save</button>
+</form>
+{% endblock %}

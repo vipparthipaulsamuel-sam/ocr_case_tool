@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block content %}
+<h3>Admin Dashboard</h3>
+<p class="text-muted">You can see users, cases, uploads, and manage case records.</p>
+
+<!-- Users -->
+<h5 class="mt-4">Users</h5>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle">
+    <thead>
+      <tr>
+        <th style="width:60px;">ID</th>
+        <th style="width:220px;">Name</th>
+        <th>Email</th>
+        <th style="width:100px;">Role</th>
+        <th style="width:180px;">Joined</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u.id }}</td>
+        <td>{{ u.name }}</td>
+        <td>{{ u.email }}</td>
+        <td>{{ u.role }}</td>
+        <td>{{ u.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-muted">No users yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Cases -->
+<h5 class="mt-4">Cases</h5>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle">
+    <thead>
+      <tr>
+        <th style="width:60px;">ID</th>
+        <th>Name</th>
+        <th style="width:260px;">Owner</th>
+        <th style="width:180px;">Created</th>
+        <th style="width:280px;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in cases %}
+      <tr>
+        <td>{{ c.id }}</td>
+        <td>{{ c.name }}</td>
+        <td>{{ c.owner.name }} ({{ c.owner.email }})</td>
+        <td>{{ c.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td>
+          <div class="d-flex gap-2">
+            <a class="btn btn-sm btn-primary"
+               href="{{ url_for('case_detail', case_id=c.id) }}">
+              Open
+            </a>
+
+            <a class="btn btn-sm btn-outline-secondary"
+               href="{{ url_for('payments.export_pdf_case', case_id=c.id) }}">
+              Export as PDF
+            </a>
+
+            <!-- Admin-only Delete: this page itself requires admin, but keep POST+confirm -->
+            <form method="post"
+                  action="{{ url_for('delete_case', case_id=c.id) }}"
+                  onsubmit="return confirm('Delete this case and ALL related data (uploads, OCR, notes, payments)?');">
+              <button type="submit" class="btn btn-sm btn-danger">
+                Delete
+              </button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-muted">No cases yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Uploads -->
+<h5 class="mt-4">Uploads & OCR</h5>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle">
+    <thead>
+      <tr>
+        <th style="width:60px;">ID</th>
+        <th style="width:180px;">When</th>
+        <th style="width:260px;">User</th>
+        <th>Case</th>
+        <th>File</th>
+        <th>OCR (first 200 chars)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for up in uploads %}
+      <tr>
+        <td>{{ up.id }}</td>
+        <td>{{ up.uploaded_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td>{{ up.uploader.name }} ({{ up.uploader.email }})</td>
+        <td>{{ up.case.name }}</td>
+        <td>{{ up.original_filename }}</td>
+        <td>
+          {% if up.ocr_text and up.ocr_text.text %}
+            {{ up.ocr_text.text[:200] }}{% if up.ocr_text.text|length > 200 %}...{% endif %}
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="text-muted">No uploads yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

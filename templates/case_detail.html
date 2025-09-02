@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block content %}
+<h3>Case: {{ case.name }}</h3>
+<p class="text-muted">Created {{ case.created_at.strftime("%Y-%m-%d %H:%M") }} by {{ case.owner.name }}</p>
+{% if case.description %}<p>{{ case.description }}</p>{% endif %}
+
+<div class="row">
+  <div class="col-md-6">
+    <h5>Upload Screenshot</h5>
+    <form method="post" action="{{ url_for('upload_file', case_id=case.id) }}" enctype="multipart/form-data">
+      <div class="mb-3">
+        <input class="form-control" type="file" name="file" accept=".jpg,.jpeg,.png" required>
+      </div>
+      <button class="btn btn-primary">Upload & OCR</button>
+    </form>
+  </div>
+  <div class="col-md-6">
+    <h5>Add Note</h5>
+    <form method="post" action="{{ url_for('add_note', case_id=case.id) }}">
+      <div class="mb-3">
+        <textarea name="content" class="form-control" rows="3" placeholder="Observation, call log, verification steps, etc." required></textarea>
+      </div>
+      <button class="btn btn-secondary">Add Note</button>
+    </form>
+  </div>
+</div>
+
+<hr class="my-4"/>
+<h5>Uploads</h5>
+<div class="list-group mb-4">
+  {% for u in uploads %}
+  <div class="list-group-item">
+    <div class="d-flex justify-content-between">
+      <div>
+        <strong>{{ u.original_filename }}</strong>
+        <div class="small text-muted">Uploaded {{ u.uploaded_at.strftime("%Y-%m-%d %H:%M") }} by {{ u.uploader.name }}</div>
+        <pre class="mt-2" style="white-space: pre-wrap;">{{ u.ocr_text.text if u.ocr_text else '' }}</pre>
+      </div>
+      <div class="text-end">
+        <a class="btn btn-sm btn-outline-secondary" target="_blank" href="{{ url_for('serve_upload', upload_id=u.id) }}">View</a>
+        <form method="post" action="{{ url_for('rerun_ocr', upload_id=u.id) }}" style="display:inline;">
+          <button class="btn btn-sm btn-outline-primary">Re-run OCR</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="list-group-item text-muted">No uploads yet.</div>
+  {% endfor %}
+</div>
+
+<hr class="my-4"/>
+<h3>Payments</h3>
+
+<form method="post"
+      action="{{ url_for('payments.upload_case', case_id=case.id) }}"
+      enctype="multipart/form-data"
+      class="mb-3">
+  <div class="input-group">
+    <input class="form-control" type="file" name="files" multiple accept="image/*">
+    <button class="btn btn-primary">Upload Payment</button>
+  </div>
+  <div class="form-text">You can select multiple screenshots. Supported: JPG, PNG, WEBP, TIFF.</div>
+</form>
+
+<div class="table-responsive">
+  <table class="table table-sm table-striped">
+    <thead>
+      <tr>
+        <th>Sl.NO</th>
+        <th>Bank Name/ Wallet (Debited)</th>
+        <th>UTR</th>
+        <th>UPI reference No</th>
+        <th>Amount</th>
+        <th>Date of transaction</th>
+        <th>Time of transaction</th>
+        <th>UPI ID From</th>
+        <th>UPI ID To</th>
+        <th>Transaction ID</th>
+        <th>Bank Name (Credited)</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in payments %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ p.bank_name or '' }}</td>
+        <td>{{ p.utr or '' }}</td>
+        <td>{{ p.upi_txn_id or '' }}</td>
+        <td>{{ '₹' ~ ('%.2f'|format(p.amount_inr)) if p.amount_inr else '' }}</td>
+        <td>{{ p.txn_time.strftime('%d-%m-%Y') if p.txn_time else '' }}</td>
+        <td>{{ p.txn_time.strftime('%I:%M %p') if p.txn_time else '' }}</td>
+        <td>{{ p.payer_name or '' }}</td>
+        <td>{{ p.payee_vpa or '' }}</td>
+        <td>{{ p.upi_txn_id or '' }}</td>
+        <td>{{ p.payee_name or '' }}</td>
+        <td><a class="btn btn-sm btn-warning" href="{{ url_for('payments.edit', payment_id=p.id) }}">Edit</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="12" class="text-muted">No payments yet for this case.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
