@@ -23,8 +23,12 @@ jobs:
           pip install pyinstaller waitress
 
       - name: Build EXE
+        shell: bash
         run: |
-          pyinstaller --noconsole --onefile main_windows.py --name ocr_case_tool.exe
+          pyinstaller --noconsole --onefile main_windows.py --name ocr_case_tool.exe \
+            --add-data "templates;templates" \
+            --add-data "payments/templates;payments/templates" \
+            --add-data "payments/static;payments/static"
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
