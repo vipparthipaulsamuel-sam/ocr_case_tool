@@ -21,7 +21,7 @@ load_dotenv()
 
 # --- Config helpers ---
 BASE_DIR = Path(__file__).resolve().parent
-# Allow the launcher (e.g., Windows EXE) to override where we write the DB/uploads
+# Allow a launcher (e.g., Windows EXE) to override where we write the DB/uploads
 INSTANCE_DIR = Path(os.getenv("APP_INSTANCE_DIR", BASE_DIR / "instance"))
 UPLOAD_DIR = Path(os.getenv("UPLOAD_FOLDER", INSTANCE_DIR / "uploads"))
 ALLOWED_EXTS = {".jpg", ".jpeg", ".png"}  # extend if needed
@@ -37,13 +37,11 @@ def normalize_sqlite_uri(uri: str) -> str:
     if not uri.startswith("sqlite:///"):
         return uri
 
-    # Strip prefix and inspect the path
     path_part = uri[len("sqlite:///"):]
     p = Path(path_part)
 
     # Windows drive-letter path? keep 3 slashes form
     if os.name == "nt":
-        # e.g. 'C:/Users/...'
         if ":" in path_part[:3]:
             return f"sqlite:///{p.as_posix()}"
 
@@ -60,7 +58,7 @@ def create_app():
     app = Flask(__name__, instance_relative_config=True)
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-change-me')
 
-    # Default DB under INSTANCE_DIR (which may be overridden via APP_INSTANCE_DIR)
+    # Default DB under INSTANCE_DIR (which may be overridden via APP_INSTANCE_DIR / DATABASE_URL)
     default_db_uri = f"sqlite:///{(INSTANCE_DIR / 'ocr_case_tool.sqlite').as_posix()}"
     db_uri = os.getenv('DATABASE_URL', default_db_uri)
     db_uri = normalize_sqlite_uri(db_uri)
@@ -451,13 +449,13 @@ def delete_case(case_id):
     case = Case.query.get_or_404(case_id)
 
     # Delete uploads + OCR texts
-    for upload in case.uploads:
+    for upload in list(case.uploads):
         if upload.ocr_text:
             db.session.delete(upload.ocr_text)
         db.session.delete(upload)
 
     # Delete notes
-    for note in case.notes:
+    for note in list(case.notes):
         db.session.delete(note)
 
     # Delete related payments if they exist
@@ -475,12 +473,52 @@ def delete_case(case_id):
     return redirect(url_for("admin_dashboard"))
 
 
+# --- Bootstrap admin (NEW) ---
+def bootstrap_admin_if_needed():
+    """Create or promote a default admin if no admin exists yet.
+
+    Defaults: admin@example.com / test123 / name=Admin.
+    Override with env vars:
+      BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, BOOTSTRAP_ADMIN_NAME
+    """
+    email = os.getenv('BOOTSTRAP_ADMIN_EMAIL', 'admin@example.com').strip().lower()
+    password = os.getenv('BOOTSTRAP_ADMIN_PASSWORD', 'test123')
+    name = os.getenv('BOOTSTRAP_ADMIN_NAME', 'Admin')
+
+    from sqlalchemy import select
+    with app.app_context():
+        # If any admin exists, do nothing
+        any_admin = db.session.execute(select(User).filter_by(role='admin')).first()
+        if any_admin:
+            return
+
+        # Create or promote the configured email
+        u = db.session.execute(select(User).filter_by(email=email)).scalar_one_or_none()
+        if u:
+            u.role = 'admin'
+            if password:
+                u.password_hash = generate_password_hash(password, method="pbkdf2:sha256")
+            db.session.commit()
+            print(f"[bootstrap-admin] Promoted existing user '{email}' to admin.")
+        else:
+            u = User(
+                email=email,
+                name=name,
+                role="admin",
+                password_hash=generate_password_hash(password, method="pbkdf2:sha256"),
+            )
+            db.session.add(u)
+            db.session.commit()
+            print(f"[bootstrap-admin] Created admin user '{email}' with default password.")
+
+
 # --- CLI helpers (with app context) ---
 def cli_init_db():
     with app.app_context():
         INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         db.create_all()
+        bootstrap_admin_if_needed()
         print("Database initialized at:", app.config['SQLALCHEMY_DATABASE_URI'])
 
 
@@ -489,7 +527,11 @@ def cli_create_admin(email, name, password):
         from sqlalchemy import select
         existing = db.session.execute(select(User).filter_by(email=email.lower())).scalar_one_or_none()
         if existing:
-            print("User already exists:", email)
+            existing.role = "admin"
+            if password:
+                existing.password_hash = generate_password_hash(password, method="pbkdf2:sha256")
+            db.session.commit()
+            print("User promoted to admin:", email)
             return
         u = User(
             email=email.lower(),

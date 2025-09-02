@@ -8,8 +8,8 @@ from pathlib import Path
 def _writable_base_dir():
     """
     Choose a writable base folder on Windows:
-      %LOCALAPPDATA%\OCRCaseTool\instance
-    Fallback to ~\OCRCaseTool\instance if LOCALAPPDATA is missing.
+      %LOCALAPPDATA%\\OCRCaseTool\\instance
+    Fallback to ~\\OCRCaseTool\\instance if LOCALAPPDATA is missing.
     Also ensure an 'uploads' subfolder exists.
     """
     base_root = os.getenv("LOCALAPPDATA") or os.path.expanduser("~")
@@ -23,18 +23,14 @@ def _writable_base_dir():
 def _set_runtime_env():
     """
     Set environment variables BEFORE importing the Flask app so that
-    app.py picks them up:
-      - APP_INSTANCE_DIR       (where app.py will place the sqlite file by default)
-      - DATABASE_URL           (explicit SQLAlchemy URL to the sqlite file)
-      - UPLOAD_FOLDER          (where uploads should be saved)
-      - SECRET_KEY             (fallback secret)
+    app.py picks them up.
     """
     app_root, inst, upld = _writable_base_dir()
 
     # Point SQLAlchemy to a writable sqlite file
     db_path = inst / "ocr_case_tool.sqlite"
 
-    # Build a platform-safe sqlite URL (use forward slashes)
+    # Platform-safe sqlite URL (use forward slashes)
     db_url = "sqlite:///" + db_path.as_posix()
 
     # Export for app.py consumption
@@ -43,6 +39,16 @@ def _set_runtime_env():
     os.environ["UPLOAD_FOLDER"] = upld.as_posix()
     os.environ.setdefault("SECRET_KEY", "win-bundled-default")
 
+    # Defaults for admin bootstrap (override via system env if desired)
+    os.environ.setdefault("BOOTSTRAP_ADMIN_EMAIL", "admin@example.com")
+    os.environ.setdefault("BOOTSTRAP_ADMIN_PASSWORD", "test123")
+    os.environ.setdefault("BOOTSTRAP_ADMIN_NAME", "Admin")
+
+    # Ensure sqlite file exists (avoids "unable to open database file" on first connect)
+    if not db_path.exists():
+        inst.mkdir(parents=True, exist_ok=True)
+        db_path.touch()
+
 
 def _maybe_point_to_bundled_tesseract():
     """
@@ -50,7 +56,7 @@ def _maybe_point_to_bundled_tesseract():
     Works with PyInstaller's _MEIPASS extraction dir.
     """
     try:
-        import pytesseract  # noqa: WPS433 (import inside function is intentional)
+        import pytesseract  # import inside function intentionally
         base = getattr(sys, "_MEIPASS", os.path.abspath("."))
         candidate = os.path.join(base, "tesseract", "tesseract.exe")
         if os.path.exists(candidate):
@@ -68,19 +74,20 @@ def _open_browser():
 _set_runtime_env()
 
 from waitress import serve  # noqa: E402
-from app import app, db     # noqa: E402  (app now uses our env values)
+from app import app, db, bootstrap_admin_if_needed  # noqa: E402  (app now uses our env values)
 
 
 def _ensure_db():
     """
-    Create DB tables on first run.
-    Using SQLAlchemy inspector to avoid errors if tables already exist.
+    Create DB tables on first run, then ensure an admin exists.
     """
-    from sqlalchemy import inspect  # noqa: WPS433
+    from sqlalchemy import inspect  # import inside to avoid PyInstaller surprises
     with app.app_context():
         insp = inspect(db.engine)
         if not insp.get_table_names():
             db.create_all()
+        # Make sure an admin account exists
+        bootstrap_admin_if_needed()
 
 
 if __name__ == "__main__":
