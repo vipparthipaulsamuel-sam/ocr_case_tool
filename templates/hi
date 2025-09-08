@@ -85,7 +85,7 @@
             </div>
             <div class="modal-body">
               <div class="row g-3">
-                <!-- OCR chips -->
+                <!-- OCR chips (line-by-line to mirror screenshot layout) -->
                 <div class="col-12 col-lg-6">
                   <div class="d-flex justify-content-between align-items-center mb-2">
                     <strong>OCR Text</strong>
@@ -236,13 +236,6 @@
       <form class="d-inline" method="post" action="{{ url_for('rerun_ocr', upload_id=up.id) }}">
         <button class="btn btn-sm btn-outline-primary">Re-run OCR</button>
       </form>
-
-      <!-- Edit/Delete uploads -->
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('payments.edit_upload', upload_id=up.id) }}">Edit</a>
-      <form class="d-inline" method="post" action="{{ url_for('payments.delete_upload', upload_id=up.id) }}"
-            onsubmit="return confirm('Delete this upload?');">
-        <button class="btn btn-sm btn-outline-danger">Delete</button>
-      </form>
     </div>
   </li>
   {% else %}
@@ -250,25 +243,15 @@
   {% endfor %}
 </ul>
 
-<!-- General single-file upload (unchanged) -->
 <form class="card card-body mb-3" method="post" action="{{ url_for('upload_file', case_id=case.id) }}" enctype="multipart/form-data">
   <div class="d-flex align-items-center gap-2">
-    <input class="form-control" type="file" name="file" accept=".jpg,.jpeg,.png" required>
+    <input class="form-control"
+           type="file"
+           name="file"
+           accept=".jpg,.jpeg,.png"
+           required>
     <button class="btn btn-primary">Upload</button>
   </div>
-</form>
-
-<!-- Make PDF (moved directly under the general Choose File form) -->
-<h4 class="mt-4">Make PDF</h4>
-<form class="card card-body mb-3"
-      method="post"
-      action="{{ url_for('payments.make_pdf', case_id=case.id) }}"
-      enctype="multipart/form-data">
-  <div class="d-flex align-items-center gap-2">
-    <input class="form-control" type="file" name="pdf_files" accept=".jpg,.jpeg,.png,.webp,.tif,.tiff" multiple required>
-    <button class="btn btn-primary" type="submit">Generate PDF</button>
-  </div>
-  <small class="text-muted mt-2">Select multiple screenshots (chat evidence, payments, etc.). They’ll be merged into one PDF.</small>
 </form>
 
 <!-- Drag/drop + click-to-append logic -->
@@ -281,6 +264,7 @@
 (function () {
   let focusedInput = null;
 
+  // spacing helpers
   const needsSpaceBefore = (s) => {
     if (!s) return false;
     const tail = s.slice(-1);
@@ -302,10 +286,12 @@
     inputEl.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  // Focus tracking
   document.addEventListener('focusin', (e) => {
     if (e.target.classList?.contains('droppable')) focusedInput = e.target;
   });
 
+  // CHIP CLICK: append to currently focused input
   document.addEventListener('click', (e) => {
     const chip = e.target.closest('.ocr-chip');
     if (!chip || !focusedInput) return;
@@ -313,6 +299,7 @@
     appendToken(focusedInput, tok);
   });
 
+  // CHIP DRAGSTART (provide data)
   document.addEventListener('dragstart', (e) => {
     const chip = e.target.closest('.ocr-chip');
     if (!chip) return;
@@ -321,31 +308,39 @@
     e.dataTransfer.effectAllowed = 'copy';
   });
 
+  // ***** IMPORTANT: use CAPTURE phase to kill native drop that replaces text *****
   document.addEventListener('dragover', (e) => {
     const inp = e.target.closest && e.target.closest('.droppable');
     if (!inp) return;
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'copy';
     inp.classList.add('drop-over');
-  }, true);
+  }, true); // capture
 
   document.addEventListener('dragleave', (e) => {
     const inp = e.target.closest && e.target.closest('.droppable');
     if (!inp) return;
     inp.classList.remove('drop-over');
-  }, true);
+  }, true); // capture
 
   document.addEventListener('drop', (e) => {
     const inp = e.target.closest && e.target.closest('.droppable');
     if (!inp) return;
-    e.preventDefault(); e.stopPropagation();
+    // kill native insertion completely
+    e.preventDefault();
+    e.stopPropagation();
+
     inp.classList.remove('drop-over');
     const tok = e.dataTransfer.getData('text/plain');
+
+    // move caret to end and append
     try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch(_) {}
     appendToken(inp, tok);
     inp.focus();
-  }, true);
+  }, true); // capture
 
+  // Cleanup on blur
   document.addEventListener('blur', (e) => {
     const inp = e.target.closest?.('input.droppable, textarea.droppable');
     if (!inp) return;

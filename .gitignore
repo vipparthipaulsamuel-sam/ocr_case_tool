@@ -1,0 +1,17 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Flask/instance stuff
+instance/
+*.sqlite
+*.db
+
+# Local uploads / media
+uploads/
+instance/uploads/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
